@@ -1,0 +1,71 @@
+---
+- name   : vnc zabbix install 
+  hosts  : antix_32
+  become : true
+  vars:
+    uri: "//filesrv2/linux_dis$"
+    username: "vmail"
+    domain  : "factory" 
+    password: "vmail"
+    mountpoint: "/mnt/linux_dis"
+    vnc_pass_src   : "/mnt/linux_dis/manual_soft_install_2022/vnc/etc/x11vnc.pass"
+    vnc_pass_dest  : "/etc/x11vnc.pass"
+    zabbix_ag_conf_src    : "/mnt/linux_dis/manual_soft_install_2022/zabbix/etc/zabbix/zabbix_agentd.conf"
+    zabbix_ag_conf_dest  : "/etc/zabbix/zabbix_agentd.conf"
+
+  tasks:
+    - name: utility present
+      ansible.builtin.package:
+        name: cifs-utils
+        state: present
+    - name: check mountpoint exist
+      ansible.builtin.file:
+        path: "{{ mountpoint }}"
+        state: directory
+        mode: '0755'
+        owner: user
+        group: user
+    - name: Mount network share
+      ansible.posix.mount:
+        src: "{{ uri }}"
+        path: "{{ mountpoint }}"
+        fstype: cifs
+        opts: 'username={{ username }},password={{ password }},domain={{ domain }}'
+        state: mounted
+
+    - name : Install x11vnc package
+      apt  :
+       name: x11vnc
+
+    - name : Copy pass file
+      copy :
+       src         : '{{ vnc_pass_src }}'
+       dest       : '{{ vnc_pass_dest }}'
+       remote_src : yes
+
+    - name       : Startup vnc with profile
+      lineinfile :
+        path : /home/user/.desktop-session/startup
+        line : '{{ item }}'
+      with_items:
+       - ' '
+       - '## Startup x11vnc'
+       - '/usr/bin/x11vnc  -display :0 -forever  -rfbport 5900 -xkb -noxrecord -noxfixes -noxdamage -nomodtweak -repeat -shared -norc -rfbauth /etc/x11vnc.pass &'
+
+    - name : install zabbix agent
+      apt :
+        name : zabbix-agent
+
+    - name : Copy zabbix agent conf
+      copy :
+       src   : '{{ zabbix_ag_conf_src }}'
+       dest : '{{ zabbix_ag_conf_dest }}'
+       remote_src : yes
+      notify:
+      - Restart zabbix agent
+
+  handlers:  
+    - name: Restart zabbix agent
+      service:
+          name: zabbix-agent
+          state: restarted
